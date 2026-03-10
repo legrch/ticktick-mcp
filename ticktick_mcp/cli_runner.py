@@ -65,6 +65,12 @@ def resolve_project(name_or_id):
     sys.exit(1)
 
 
+def _strip_prio_emoji(title):
+    """Remove leading priority emoji from title (sync adds them, avoid doubling)."""
+    import re
+    return re.sub(r'^[🔴🟡🟢⚪⏸️]+\s*', '', title)
+
+
 def fmt_task(task, compact=False):
     """Format a single task for display."""
     prio_map = {0: "⚪", 1: "🟢", 3: "🟡", 5: "🔴"}
@@ -78,10 +84,12 @@ def fmt_task(task, compact=False):
         tags = f" [{','.join(task['tags'])}]"
     tid = task.get("id", "?")
 
-    if compact:
-        return f"  {status} {prio} {task.get('title', '?')}{due}{tags}  ({tid[:8]})"
+    title = _strip_prio_emoji(task.get("title", "?"))
 
-    lines = [f"{prio} {task.get('title', '?')}"]
+    if compact:
+        return f"  {status} {prio} {title}{due}{tags}  ({tid[:8]})"
+
+    lines = [f"{prio} {title}"]
     lines.append(f"  id: {tid}  project: {task.get('projectId', '?')}")
     if task.get("dueDate"):
         lines.append(f"  due: {task['dueDate'][:10]}")
