@@ -72,10 +72,14 @@ def format_task(task: Dict) -> str:
     status = "Completed" if task.get('status') == 2 else "Active"
     formatted += f"Status: {status}\n"
     
+    # Add tags if available
+    if task.get('tags'):
+        formatted += f"Tags: {', '.join(task['tags'])}\n"
+
     # Add content if available
     if task.get('content'):
         formatted += f"\nContent:\n{task.get('content')}\n"
-    
+
     # Add subtasks if available
     items = task.get('items', [])
     if items:
@@ -213,54 +217,59 @@ async def get_task(project_id: str, task_id: str) -> str:
 
 @mcp.tool()
 async def create_task(
-    title: str, 
-    project_id: str, 
-    content: str = None, 
-    start_date: str = None, 
-    due_date: str = None, 
-    priority: int = 0
+    title: str,
+    project_id: str,
+    content: str = None,
+    due_date: str = None,
+    priority: int = 0,
+    is_all_day: bool = True,
+    start_date: str = None,
+    tags: List[str] = None
 ) -> str:
     """
     Create a new task in TickTick.
-    
+
     Args:
         title: Task title
         project_id: ID of the project to add the task to
         content: Task description/content (optional)
-        start_date: Start date in ISO format YYYY-MM-DDThh:mm:ss+0000 (optional)
-        due_date: Due date in ISO format YYYY-MM-DDThh:mm:ss+0000 (optional)
+        due_date: Due date in YYYY-MM-DD format (optional). Also accepts YYYY-MM-DDThh:mm:ss+0000 for timed tasks.
         priority: Priority level (0: None, 1: Low, 3: Medium, 5: High) (optional)
+        is_all_day: Whether this is an all-day task (default: True). Set to False for timed tasks.
+        start_date: Start date in YYYY-MM-DD format (optional). Usually not needed — just set due_date.
+        tags: List of tag names to apply (optional). Example: ["finance", "urgent"]
     """
     if not ticktick:
         if not initialize_client():
             return "Failed to initialize TickTick client. Please check your API credentials."
-    
+
     # Validate priority
     if priority not in [0, 1, 3, 5]:
         return "Invalid priority. Must be 0 (None), 1 (Low), 3 (Medium), or 5 (High)."
-    
+
     try:
-        # Validate dates if provided
+        # Normalize date-only format to ISO with midnight time for API compatibility
         for date_str, date_name in [(start_date, "start_date"), (due_date, "due_date")]:
             if date_str:
                 try:
-                    # Try to parse the date to validate it
                     datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                 except ValueError:
-                    return f"Invalid {date_name} format. Use ISO format: YYYY-MM-DDThh:mm:ss+0000"
-        
+                    return f"Invalid {date_name} format. Use YYYY-MM-DD or YYYY-MM-DDThh:mm:ss+0000"
+
         task = ticktick.create_task(
             title=title,
             project_id=project_id,
             content=content,
             start_date=start_date,
             due_date=due_date,
-            priority=priority
+            priority=priority,
+            is_all_day=is_all_day,
+            tags=tags
         )
-        
+
         if 'error' in task:
             return f"Error creating task: {task['error']}"
-        
+
         return f"Task created successfully:\n\n" + format_task(task)
     except Exception as e:
         logger.error(f"Error in create_task: {e}")
@@ -272,40 +281,43 @@ async def update_task(
     project_id: str,
     title: str = None,
     content: str = None,
-    start_date: str = None,
     due_date: str = None,
-    priority: int = None
+    priority: int = None,
+    is_all_day: bool = None,
+    start_date: str = None,
+    tags: List[str] = None
 ) -> str:
     """
     Update an existing task in TickTick.
-    
+
     Args:
         task_id: ID of the task to update
         project_id: ID of the project the task belongs to
         title: New task title (optional)
         content: New task description/content (optional)
-        start_date: New start date in ISO format YYYY-MM-DDThh:mm:ss+0000 (optional)
-        due_date: New due date in ISO format YYYY-MM-DDThh:mm:ss+0000 (optional)
+        due_date: New due date in YYYY-MM-DD format (optional). Also accepts YYYY-MM-DDThh:mm:ss+0000 for timed tasks.
         priority: New priority level (0: None, 1: Low, 3: Medium, 5: High) (optional)
+        is_all_day: Whether this is an all-day task (optional). Set to True to fix midnight time display.
+        start_date: New start date in YYYY-MM-DD format (optional). Usually not needed.
+        tags: List of tag names to apply (optional). Example: ["finance", "urgent"]. Pass empty list [] to clear tags.
     """
     if not ticktick:
         if not initialize_client():
             return "Failed to initialize TickTick client. Please check your API credentials."
-    
+
     # Validate priority if provided
     if priority is not None and priority not in [0, 1, 3, 5]:
         return "Invalid priority. Must be 0 (None), 1 (Low), 3 (Medium), or 5 (High)."
-    
+
     try:
         # Validate dates if provided
         for date_str, date_name in [(start_date, "start_date"), (due_date, "due_date")]:
             if date_str:
                 try:
-                    # Try to parse the date to validate it
                     datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                 except ValueError:
-                    return f"Invalid {date_name} format. Use ISO format: YYYY-MM-DDThh:mm:ss+0000"
-        
+                    return f"Invalid {date_name} format. Use YYYY-MM-DD or YYYY-MM-DDThh:mm:ss+0000"
+
         task = ticktick.update_task(
             task_id=task_id,
             project_id=project_id,
@@ -313,12 +325,14 @@ async def update_task(
             content=content,
             start_date=start_date,
             due_date=due_date,
-            priority=priority
+            priority=priority,
+            is_all_day=is_all_day,
+            tags=tags
         )
-        
+
         if 'error' in task:
             return f"Error updating task: {task['error']}"
-        
+
         return f"Task updated successfully:\n\n" + format_task(task)
     except Exception as e:
         logger.error(f"Error in update_task: {e}")
@@ -797,11 +811,12 @@ async def batch_create_tasks(tasks: List[Dict[str, Any]]) -> str:
             - start_date (optional): Start date in user timezone (YYYY-MM-DDTHH:mm:ss or with timezone)
             - due_date (optional): Due date in user timezone (YYYY-MM-DDTHH:mm:ss or with timezone)  
             - priority (optional): Priority level {0: "None", 1: "Low", 3: "Medium", 5: "High"}
-    
+            - tags (optional): List of tag names. Example: ["finance", "urgent"]
+
     Example:
         tasks = [
-            {"title": "Example A", "project_id": "1234ABC", "priority": 5},
-            {"title": "Example B", "project_id": "1234XYZ", "content": "Description", "start_date": "2025-07-18T10:00:00", "due_date": "2025-07-19T10:00:00"}
+            {"title": "Example A", "project_id": "1234ABC", "priority": 5, "tags": ["work"]},
+            {"title": "Example B", "project_id": "1234XYZ", "content": "Description", "due_date": "2025-07-19T10:00:00"}
         ]
     """
     if not ticktick:
@@ -842,7 +857,8 @@ async def batch_create_tasks(tasks: List[Dict[str, Any]]) -> str:
                 start_date = task_data.get('start_date')
                 due_date = task_data.get('due_date')
                 priority = task_data.get('priority', 0)
-                
+                tags = task_data.get('tags')
+
                 # Create the task
                 result = ticktick.create_task(
                     title=title,
@@ -850,7 +866,8 @@ async def batch_create_tasks(tasks: List[Dict[str, Any]]) -> str:
                     content=content,
                     start_date=start_date,
                     due_date=due_date,
-                    priority=priority
+                    priority=priority,
+                    tags=tags
                 )
                 
                 if 'error' in result:
@@ -983,12 +1000,7 @@ async def create_subtask(
 
 def main():
     """Main entry point for the MCP server."""
-    # Initialize the TickTick client
-    if not initialize_client():
-        logger.error("Failed to initialize TickTick client. Please check your API credentials.")
-        return
-    
-    # Run the server
+    # Lazy init: tools will auto-initialize the client on first call
     mcp.run(transport='stdio')
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import re
 import requests
 import logging
 from pathlib import Path
@@ -9,6 +10,23 @@ from typing import Dict, List, Any, Optional, Tuple
 
 # Set up logging
 logger = logging.getLogger(__name__)
+
+def _normalize_date(date_str: str) -> str:
+    """Normalize a date string to full ISO 8601 format for TickTick API.
+
+    TickTick API requires 'YYYY-MM-DDThh:mm:ss.SSS+0000' format.
+    Plain 'YYYY-MM-DD' is silently ignored by the API.
+    """
+    if not date_str:
+        return date_str
+    # Already has time component — return as-is
+    if 'T' in date_str:
+        return date_str
+    # Date-only: append midnight UTC
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+        return f"{date_str}T00:00:00.000+0000"
+    return date_str
+
 
 class TickTickClient:
     """
@@ -227,37 +245,40 @@ class TickTickClient:
         """Gets a specific task by project ID and task ID."""
         return self._make_request("GET", f"/project/{project_id}/task/{task_id}")
     
-    def create_task(self, title: str, project_id: str, content: str = None, 
-                   start_date: str = None, due_date: str = None, 
-                   priority: int = 0, is_all_day: bool = False) -> Dict:
+    def create_task(self, title: str, project_id: str, content: str = None,
+                   start_date: str = None, due_date: str = None,
+                   priority: int = 0, is_all_day: bool = True,
+                   tags: List[str] = None) -> Dict:
         """Creates a new task."""
         data = {
             "title": title,
-            "projectId": project_id
+            "projectId": project_id,
+            "isAllDay": is_all_day
         }
-        
+
         if content:
             data["content"] = content
         if start_date:
-            data["startDate"] = start_date
+            data["startDate"] = _normalize_date(start_date)
         if due_date:
-            data["dueDate"] = due_date
+            data["dueDate"] = _normalize_date(due_date)
         if priority is not None:
             data["priority"] = priority
-        if is_all_day is not None:
-            data["isAllDay"] = is_all_day
-            
+        if tags is not None:
+            data["tags"] = tags
+
         return self._make_request("POST", "/task", data)
-    
-    def update_task(self, task_id: str, project_id: str, title: str = None, 
-                   content: str = None, priority: int = None, 
-                   start_date: str = None, due_date: str = None) -> Dict:
+
+    def update_task(self, task_id: str, project_id: str, title: str = None,
+                   content: str = None, priority: int = None,
+                   start_date: str = None, due_date: str = None,
+                   is_all_day: bool = None, tags: List[str] = None) -> Dict:
         """Updates an existing task."""
         data = {
             "id": task_id,
             "projectId": project_id
         }
-        
+
         if title:
             data["title"] = title
         if content:
@@ -265,10 +286,14 @@ class TickTickClient:
         if priority is not None:
             data["priority"] = priority
         if start_date:
-            data["startDate"] = start_date
+            data["startDate"] = _normalize_date(start_date)
         if due_date:
-            data["dueDate"] = due_date
-            
+            data["dueDate"] = _normalize_date(due_date)
+        if is_all_day is not None:
+            data["isAllDay"] = is_all_day
+        if tags is not None:
+            data["tags"] = tags
+
         return self._make_request("POST", f"/task/{task_id}", data)
     
     def complete_task(self, project_id: str, task_id: str) -> Dict:
