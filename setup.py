@@ -18,6 +18,7 @@ setup(
         "console_scripts": [
             "ticktick-mcp=ticktick_mcp.cli:main",
             "ticktick-auth=ticktick_mcp.authenticate:main",
+            "ticktick-cli=ticktick_mcp.cli_runner:main",
         ],
     },
     classifiers=[
